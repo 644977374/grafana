@@ -54,7 +54,7 @@ commands:
       - run:
           name: "Install Grafana build pipeline tool"
           command: |
-            VERSION=0.4.4
+            VERSION=0.4.7
             curl -fLO https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v${VERSION}/grabpl
             chmod +x grabpl
             mv grabpl /tmp
@@ -516,7 +516,10 @@ jobs:
                 --deb-db-bucket grafana-testing-aptly-db --deb-repo-bucket grafana-testing-repo --packages-bucket \
                 grafana-downloads-test --rpm-repo-bucket grafana-testing-repo --simulate-release
             else
-              /tmp/grabpl publish-packages --edition << parameters.edition >>
+              # TODO: Revert to non-simulation
+              /tmp/grabpl publish-packages --edition << parameters.edition >> \
+                --deb-db-bucket grafana-testing-aptly-db --deb-repo-bucket grafana-testing-repo --packages-bucket \
+                grafana-downloads-test --rpm-repo-bucket grafana-testing-repo --simulate-release
             fi
       - run:
           name: CI job failed
@@ -597,6 +600,14 @@ jobs:
           # This version is necessary for building cross-platform images
           version: 18.09.3
       - install-grabpl
+      - run:
+          name: Install gcloud SDK
+          command: |
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
+              sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+            curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+              sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+            sudo apt-get update && sudo apt-get install google-cloud-sdk
       # XXX: Is this necessary?
       - run: docker run --privileged linuxkit/binfmt:v0.6
       - run:
@@ -630,7 +641,9 @@ jobs:
               /tmp/grabpl publish-docker --jobs 4 --edition << parameters.edition >> --ubuntu=<< parameters.ubuntu >> --dry-run
             elif [[ -n $CIRCLE_TAG ]]; then
               # This is a release
-              /tmp/grabpl publish-docker --jobs 4 --edition << parameters.edition >> --ubuntu=<< parameters.ubuntu >>
+              # TODO: Revert to non-internal
+              /tmp/grabpl publish-docker --jobs 4 --edition << parameters.edition >> --ubuntu=<< parameters.ubuntu >> \
+                --internal
             else
               # TODO: Don't ignore errors, temporary workaround until we fix #22955
               /tmp/grabpl publish-docker --jobs 4 --edition << parameters.edition >> --ubuntu=<< parameters.ubuntu >> || echo Publishing failed!
@@ -1231,12 +1244,6 @@ workflows:
           filters: *filter-only-master
           requires:
             - end-to-end-tests
-      - release-packages:
-          filters: *filter-only-release
-          requires:
-            - end-to-end-tests
-            - mysql-integration-test
-            - postgres-integration-test
       - publish-packages:
           filters: *filter-master-or-release
           name: publish-oss-packages
@@ -1259,6 +1266,7 @@ workflows:
             - mysql-integration-test
             - postgres-integration-test
             - build-release-publisher
+      # Is this OK to run on Friday?
       - publish-storybook:
           filters: *filter-all
           requires:
